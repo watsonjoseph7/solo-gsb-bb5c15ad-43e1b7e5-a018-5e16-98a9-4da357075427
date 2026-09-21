@@ -13,6 +13,7 @@ class ErrorCode:
     CONTOUR_VANISHED = "CONTOUR_VANISHED"
     CONTOUR_SPLIT = "CONTOUR_SPLIT"
     INVALID_RESULT = "INVALID_OFFSET_RESULT"
+    TAB_COVERS_RING = "TAB_COVERS_RING"
 
 
 # 面向调用方的中文错误信息
@@ -21,6 +22,7 @@ _MESSAGES = {
     ErrorCode.CONTOUR_VANISHED: "刀缝偏移后轮廓消失，整单拒绝",
     ErrorCode.CONTOUR_SPLIT: "刀缝偏移后轮廓分裂为多个闭合环，整单拒绝",
     ErrorCode.INVALID_RESULT: "刀缝偏移结果无效，整单拒绝",
+    ErrorCode.TAB_COVERS_RING: "微连接（留桥）合并后覆盖整圈，无切割段可输出，整单拒绝",
 }
 
 

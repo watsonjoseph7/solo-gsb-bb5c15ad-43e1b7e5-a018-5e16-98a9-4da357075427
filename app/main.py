@@ -21,9 +21,11 @@ app = FastAPI(
     description=(
         "接收由外轮廓与孔洞组成的零件及刀缝宽度，"
         "外轮廓向外、孔洞向内偏移刀缝宽度的一半，返回闭合刀具中心轨迹。"
-        "任一原始轮廓自交，或偏移后消失、分裂时，整单拒绝并定位原轮廓。"
+        "每条轮廓可声明微连接（留桥 tabs）：在补偿轨迹上按归一化周长位置居中留空，"
+        "响应按切割顺序给出开放切割段。"
+        "任一原始轮廓自交，或偏移后消失、分裂，或留桥覆盖整圈时，整单拒绝并定位原轮廓。"
     ),
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
@@ -45,13 +47,13 @@ async def health() -> HealthResponse:
     tags=["compensation"],
     responses={
         422: {
-            "description": "几何语义错误：自交 / 轮廓消失 / 轮廓分裂，整单拒绝",
+            "description": "几何语义错误：自交 / 轮廓消失 / 轮廓分裂 / 留桥覆盖整圈，整单拒绝",
             "content": {
                 "application/json": {
                     "example": {
                         "error": {
-                            "code": "CONTOUR_SPLIT",
-                            "message": "刀缝偏移后轮廓分裂为多个闭合环，整单拒绝",
+                            "code": "TAB_COVERS_RING",
+                            "message": "微连接（留桥）合并后覆盖整圈，无切割段可输出，整单拒绝: 留桥合并后覆盖补偿轨迹整圈",
                             "location": {
                                 "part_index": 0,
                                 "contour_index": 1,
@@ -71,6 +73,8 @@ async def kerf_compensation(req: CompensationRequest) -> CompensationResponse:
     - 孔洞始终嵌在所属零件下返回（保持归属）；
     - 零件按 ``id`` 字典序稳定排序（无 id 的按原输入顺序排在后）；
       零件内部孔洞同理；
+    - 每条轨迹的 ``segments`` 按切割顺序给出开放切割段：
+      配置 ``tabs`` 时扣除合并后的留桥区间，未配置时仅含完整环；
     - 任何一条轮廓不满足条件，整单拒绝，不返回部分轨迹。
     """
     offset = req.kerf_width / 2.0

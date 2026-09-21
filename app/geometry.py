@@ -13,6 +13,9 @@
 偏移前若环自交，或偏移结果为空（轮廓消失）、为 MultiPolygon / GeometryCollection
 （轮廓分裂）、或结果几何无效，立即抛出 :class:`CompensationError`，
 调用方据此返回错误，不输出任何部分轨迹。
+
+微连接（留桥）在偏移与规范化**之后**处理（见 :mod:`app.tabs`）：沿补偿轨迹
+弧长居中留空并按切割顺序输出开放段；留桥覆盖整圈同样整单拒绝。
 """
 
 from __future__ import annotations
@@ -25,7 +28,8 @@ from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
 
 from .errors import CompensationError, ErrorCode
-from .schemas import Contour, Part
+from .schemas import Contour, Part, Tab
+from .tabs import build_segments
 
 # 尖角使用斜接（mitre），匹配常见激光切割 CAM 的刀路风格；
 # mitre_limit 限制极尖角处斜接长度，避免产生异常长的尖刺。
@@ -230,6 +234,42 @@ def sort_key(ident: str | None, index: int) -> tuple:
     return (0, ident, index)
 
 
+def _ring_out(
+    *,
+    contour_id: str | None,
+    role: str,
+    part_index: int,
+    contour_index: int,
+    part_id: str | None,
+    coords: list[tuple[float, float]],
+    orientation: str,
+    area: float,
+    tabs: list[Tab],
+) -> dict:
+    """组装一条响应轨迹：补偿环点列 + 留桥切割段。"""
+    segment_coords = build_segments(
+        coords,
+        tabs,
+        part_index=part_index,
+        contour_index=contour_index,
+        part_id=part_id,
+        contour_id=contour_id,
+    )
+    return {
+        "id": contour_id,
+        "role": role,
+        "part_index": part_index,
+        "source_contour_index": contour_index,
+        "points": [{"x": x, "y": y} for x, y in coords],
+        "orientation": orientation,
+        "area": area,
+        "segments": [
+            {"points": [{"x": x, "y": y} for x, y in seg]}
+            for seg in segment_coords
+        ],
+    }
+
+
 def process_part(part: Part, part_index: int, offset: float) -> dict:
     """处理单个零件，返回可序列化为 ``PartOut`` 的 dict。
 
@@ -281,34 +321,39 @@ def process_part(part: Part, part_index: int, offset: float) -> dict:
     outer_coords, outer_ori, outer_area = normalize_ring(
         outer_offset, role="outer", reference=_coords(part.outer)
     )
+    outer_out = _ring_out(
+        contour_id=part.outer.id,
+        role="outer",
+        part_index=part_index,
+        contour_index=-1,
+        part_id=part_id,
+        coords=outer_coords,
+        orientation=outer_ori,
+        area=outer_area,
+        tabs=part.outer.tabs,
+    )
     holes_out: list[dict] = []
     for i, ring in enumerate(hole_offsets):
         coords, ori, area = normalize_ring(
             ring, role="hole", reference=_coords(part.holes[i])
         )
         holes_out.append(
-            {
-                "id": part.holes[i].id,
-                "role": "hole",
-                "part_index": part_index,
-                "source_contour_index": i,
-                "points": [{"x": x, "y": y} for x, y in coords],
-                "orientation": ori,
-                "area": area,
-            }
+            _ring_out(
+                contour_id=part.holes[i].id,
+                role="hole",
+                part_index=part_index,
+                contour_index=i,
+                part_id=part_id,
+                coords=coords,
+                orientation=ori,
+                area=area,
+                tabs=part.holes[i].tabs,
+            )
         )
 
     return {
         "id": part_id,
         "part_index": part_index,
-        "outer": {
-            "id": part.outer.id,
-            "role": "outer",
-            "part_index": part_index,
-            "source_contour_index": -1,
-            "points": [{"x": x, "y": y} for x, y in outer_coords],
-            "orientation": outer_ori,
-            "area": outer_area,
-        },
+        "outer": outer_out,
         "holes": holes_out,
     }
